@@ -1,0 +1,132 @@
+import re
+import os
+import sys
+import google.generativeai as genai
+from typing import List
+
+# --- 0. Gemini API 설정 ---
+# 발급받으신 API 키를 입력하세요.
+GENIMINI_API_KEY = "AIzaSyDHRgUCZ9NFToYowqmN1TWV0Loa0bAqde4" 
+genai.configure(api_key=GENIMINI_API_KEY)
+
+# Gemini 3.0 Flash 모델 설정 (속도와 비용 효율성이 높음)
+model = genai.GenerativeModel('gemini-1.5-flash') 
+
+# --- I. 숫자 시퀀스 괄호 처리 로직 (기존 유지) ---
+def enclose_numbers_in_parentheses(text):
+    pattern = r"(\b(?!claims?\b)[a-zA-Z]+\b)(\s\d+[a-z0-9\-\']*(?:[\s,]+(?:and|or|to|-)\s+\d+[a-z0-9\-\']*(?!\w)|[\s,]+\d+[a-z0-9\-\']*(?!\w))*)"
+    
+    def replacement_logic(match):
+        prefix = match.group(1)
+        number_sequence = match.group(2).strip() 
+        return f"{prefix}({number_sequence})"
+
+    return re.sub(pattern, replacement_logic, text, flags=re.IGNORECASE)
+
+# --- II. Gemini 번역 로직 ---
+def translate_with_gemini(text: str) -> str:
+    """
+    Gemini를 사용하여 특허 문맥에 맞는 전문적인 영한 번역을 수행합니다.
+    """
+    prompt = f"""
+    You are a professional patent translator. 
+    Translate the following English patent text into Korean.
+    Guidelines:
+    1. Use formal technical terminology used in patent documents.
+    2. Maintain the original structure and numbering.
+    3. Ensure the translation is accurate and clear.
+    
+    Text to translate:
+    {text}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"[번역 오류 발생: {e}]"
+
+def chunk_text(text: str, max_chars: int = 8000) -> List[str]:
+    # Gemini는 Google Translator보다 훨씬 큰 컨텍스트(1M+ 토큰)를 지원하지만, 
+    # 안정성을 위해 문단 단위로 적절히 끊어서 처리합니다.
+    paragraphs = text.split('\n')
+    chunks = []
+    current_chunk = ""
+
+    for para in paragraphs:
+        if len(current_chunk) + len(para) < max_chars:
+            current_chunk += para + "\n"
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = para + "\n"
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks
+
+# --- III. 비격식체 및 용어 변환 로직 (기존 유지 및 보강) ---
+def transform_korean_sentence(text):
+    conversion_rules = {
+        "입니다": "이다", "합니다": "한다", "있습니다": "있다",
+        "됩니다": "된다", "냅니다": "낸다", "시킵니다": "시킨다",
+        "필요한다": "필요하다", "유리한다": "유리하다",
+        "했습니다": "했다" , "줍니다": "준다",
+        "없습니다": "없다", "않습니다": "않는다",
+        "무화과.": "도 ", "무화과": "도 ", "그림": "도 ",
+        "도. 도": "도",
+        "매개변수": "파라미터", "종방향": "길이방향",
+        "방사상으로": "반경방향으로", "집니다": "진다"
+    }
+    for formal, casual in conversion_rules.items():
+        text = text.replace(formal, casual)
+    return text
+
+# --- 메인 실행 프로세스 ---
+def main():
+    print("="*60)
+    print(" Gemini 3.0 기반 특허/기술 문서 통합 번역기")
+    print("="*60)
+
+    input_path = input("✅ 원본 영문 파일 경로를 입력하세요: ").strip()
+    if not os.path.exists(input_path):
+        print("파일이 존재하지 않습니다.")
+        return
+
+    base_name = os.path.splitext(input_path)[0]
+    final_path = input(f"✅ 결과 저장 경로 (엔터 시 '{base_name}_translated.txt'): ").strip()
+    if not final_path:
+        final_path = f"{base_name}_translated.txt"
+
+    # 1. 파일 읽기
+    with open(input_path, 'r', encoding='utf-8') as f:
+        en_text = f.read()
+
+    # STEP 1: 괄호 처리
+    print("\n[STEP 1] 숫자 시퀀스 괄호 처리 중...")
+    processed_en = enclose_numbers_in_parentheses(en_text)
+
+    # STEP 2: Gemini 번역
+    print("\n[STEP 2] Gemini 3.0 영한 번역 진행 중...")
+    chunks = chunk_text(processed_en)
+    translated_results = []
+    
+    for i, chunk in enumerate(chunks):
+        print(f"   > 파트 {i+1}/{len(chunks)} 번역 중...")
+        result = translate_with_gemini(chunk)
+        translated_results.append(result)
+    
+    full_translated_text = "\n\n".join(translated_results)
+
+    # STEP 3: 문체 변환
+    print("\n[STEP 3] 명세서용 종결형(이다/한다) 변환 중...")
+    final_text = transform_korean_sentence(full_translated_text)
+
+    # 2. 결과 저장
+    with open(final_path, 'w', encoding='utf-8') as f:
+        f.write(final_text)
+    
+    print("\n" + "="*60)
+    print(f"작업 완료! 최종 파일: {final_path}")
+    print("="*60)
+
+if __name__ == "__main__":
+    main()

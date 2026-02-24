@@ -6,7 +6,7 @@ from typing import List
 
 # --- 0. Gemini API 설정 ---
 # 발급받으신 API 키를 입력하세요.
-GENIMINI_API_KEY = "AIzaSyDHRgUCZ9NFToYowqmN1TWV0Loa0bAqde4" 
+GENIMINI_API_KEY = "KEY" 
 genai.configure(api_key=GENIMINI_API_KEY)
 
 # Gemini 3.0 Flash 모델 설정 (속도와 비용 효율성이 높음)
